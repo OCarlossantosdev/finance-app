@@ -10,6 +10,15 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'Fluxo Pay',
   },
+  icons: {
+    icon: "/icon.png",
+    apple: "/apple-icon.png",
+  },
+  openGraph: {
+    title: "Fluxo Pay",
+    description: "Um aplicativo para gerenciar a meta diária e ver o total salvo.",
+    images: ["/opengraph-image.png"],
+  },
 };
 
 export const viewport: Viewport = {

@@ -46,8 +46,8 @@ export default function WorkProfileModal({
                             onClose();
                         }}
                         className={`p-4 rounded-2xl border text-left flex items-center justify-between transition-all active:scale-98 hover:scale-[1.01] ${currentProfile === 'motoboy'
-                                ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-lg shadow-emerald-500/10'
-                                : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'
+                            ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-lg shadow-emerald-500/10'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'
                             }`}
                     >
                         <div className="flex items-center gap-3.5">
@@ -74,8 +74,8 @@ export default function WorkProfileModal({
                             onClose();
                         }}
                         className={`p-4 rounded-2xl border text-left flex items-center justify-between transition-all active:scale-98 hover:scale-[1.01] ${currentProfile === 'driver'
-                                ? 'bg-indigo-500/10 border-indigo-500 text-white shadow-lg shadow-indigo-500/10'
-                                : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'
+                            ? 'bg-indigo-500/10 border-indigo-500 text-white shadow-lg shadow-indigo-500/10'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'
                             }`}
                     >
                         <div className="flex items-center gap-3.5">

@@ -246,8 +246,8 @@ export default function ManageAccountOrCardModal({
                             type="submit"
                             disabled={loading}
                             className={`flex-1 py-3 rounded-xl font-bold transition-colors ${tab === 'account'
-                                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                : 'bg-indigo-600 hover:bg-indigo-500 text-white'
                                 }`}
                         >
                             {loading

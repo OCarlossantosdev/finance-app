@@ -215,8 +215,8 @@ export default function QuickTransactionModal({
                                         type="button"
                                         onClick={() => setCategory(cat)}
                                         className={`py-2 px-2 rounded-xl text-xs font-medium border text-center truncate transition-all active:scale-95 ${category === cat
-                                                ? 'bg-slate-800 border-emerald-500 text-emerald-400 shadow-md scale-[1.02]'
-                                                : 'bg-slate-950/50 border-slate-800 text-slate-300 hover:border-slate-700'
+                                            ? 'bg-slate-800 border-emerald-500 text-emerald-400 shadow-md scale-[1.02]'
+                                            : 'bg-slate-950/50 border-slate-800 text-slate-300 hover:border-slate-700'
                                             }`}
                                     >
                                         {cat}

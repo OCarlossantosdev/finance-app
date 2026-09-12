@@ -1,127 +1,135 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Plus,
-  TrendingUp,
-  TrendingDown,
-  Target,
-  LineChart,
-  Wallet,
-  ChevronRight,
-  ArrowUpRight,
-  ArrowDownRight,
   Sparkles,
-  CreditCard,
-  Building2,
-  Bike,
-  Car,
-  Pencil,
-  CheckCircle2,
-  Trophy,
-  LogOut,
-  User
+  ArrowUpCircle,
+  ArrowDownCircle,
+  Wallet,
+  TrendingUp,
+  Target,
+  Clock,
+  Settings2,
+  Check,
+  ChevronRight,
+  PieChart as PieChartIcon,
+  PlusCircle,
+  CalendarDays,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import Sidebar, { TabType } from '@/components/Sidebar';
+import PlanoDeVidaTab from '@/components/tabs/PlanoDeVidaTab';
+import InvestimentosTab from '@/components/tabs/InvestimentosTab';
 import QuickTransactionModal from '@/components/QuickTransactionModal';
-import AddAccountAndCardModal from '@/components/AddAccountAndCardModal';
 import WorkProfileModal from '@/components/WorkProfileModal';
-
-interface Transaction {
-  id: string;
-  type: string;
-  category: string;
-  amount: number;
-  description: string;
-  credit_card_id?: string;
-  payment_method?: string;
-  created_at: string;
-  user_id?: string;
-}
-
-interface Account {
-  id: string;
-  name: string;
-  balance: number;
-  user_id?: string;
-}
-
-interface CreditCardItem {
-  id: string;
-  name: string;
-  limit_amount: number;
-  closing_day?: number;
-  due_day?: number;
-  user_id?: string;
-}
+import GastosGanhosTab from '@/components/tabs/GastosGanhosTab';
+import MetasTab from '@/components/tabs/MetasTab';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
 
 export default function Dashboard() {
   const router = useRouter();
 
-  // Estado do Usuário Autenticado
+  const [currentTab, setCurrentTab] = useState<TabType>('dashboard');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [authChecking, setAuthChecking] = useState(true);
 
+  // Tema Dark / Light
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  // Configurações do Usuário e Meta Diária
+  const [dailyGoal, setDailyGoal] = useState<number>(150);
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
+  const [tempDailyGoal, setTempDailyGoal] = useState('150');
+  const [workProfile, setWorkProfile] = useState<'motoboy' | 'driver' | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  // Estados do Progresso da Meta Diária e Histórico Semanal
+  const [todayProgress, setTodayProgress] = useState<number>(0);
+  const [quickInputAmount, setQuickInputAmount] = useState<string>('');
+  const [weeklyGoalTotal, setWeeklyGoalTotal] = useState<number>(0);
+
+  // Estados Financeiros Consolidados do Dashboard
+  const [totalIncomes, setTotalIncomes] = useState(0);
+  const [totalExpenses, setTotalExpenses] = useState(0);
+  const [evolutionData, setEvolutionData] = useState<any[]>([]);
+  const [categoryData, setCategoryData] = useState<any[]>([]);
+  const [loadingDashboardData, setLoadingDashboardData] = useState(false);
+
+  // Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'expense' | 'income' | 'goal' | 'investment'>('expense');
 
-  const [isAddAccountCardOpen, setIsAddAccountCardOpen] = useState(false);
-  const [addMode, setAddMode] = useState<'account' | 'card'>('account');
+  const todayStr = new Date().toISOString().split('T')[0];
 
-  // Perfil e Meta
-  const [workProfile, setWorkProfile] = useState<'motoboy' | 'driver' | null>(null);
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [dailyGoal, setDailyGoal] = useState<number>(150);
-  const [isEditingGoal, setIsEditingGoal] = useState(false);
-  const [tempGoalInput, setTempGoalInput] = useState<string>('150');
-
-  const [activeTab, setActiveTab] = useState<'accounts' | 'cards'>('cards');
-
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [cards, setCards] = useState<CreditCardItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const [totals, setTotals] = useState({
-    income: 0,
-    expense: 0,
-    goals: 0,
-    investments: 0,
-    balance: 0
-  });
-
-  // 1. CHECA SESSÃO DE AUTENTICAÇÃO
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push('/login');
-      } else {
-        setUser(session.user);
-        loadUserSettings(session.user.id);
+    if (typeof window !== 'undefined') {
+      setIsSidebarOpen(window.innerWidth >= 1024);
+
+      const savedTab = localStorage.getItem('@app:activeTab') as TabType;
+      if (savedTab) setCurrentTab(savedTab);
+
+      const savedTheme = localStorage.getItem('@app:theme') as 'dark' | 'light';
+      if (savedTheme) {
+        setTheme(savedTheme);
+      } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+        setTheme('light');
       }
-      setAuthChecking(false);
-    };
+    }
+  }, []);
 
-    checkUser();
+  const toggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('@app:theme', nextTheme);
+    }
+  };
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!session) {
-        router.push('/login');
+  const handleTabChange = (tab: TabType) => {
+    setCurrentTab(tab);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('@app:activeTab', tab);
+    }
+  };
+
+  const calculateWeeklyTotal = useCallback((userId: string, currentTodayVal: number) => {
+    const curr = new Date();
+    const firstDayOfWeek = new Date(curr.setDate(curr.getDate() - curr.getDay() + (curr.getDay() === 0 ? -6 : 1)));
+
+    let weekSum = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(firstDayOfWeek);
+      d.setDate(d.getDate() + i);
+      const dStr = d.toISOString().split('T')[0];
+
+      if (dStr === todayStr) {
+        weekSum += currentTodayVal;
       } else {
-        setUser(session.user);
-        loadUserSettings(session.user.id);
+        const storedDayVal = localStorage.getItem(`@app:todayProgress:${userId}:${dStr}`);
+        if (storedDayVal) {
+          weekSum += parseFloat(storedDayVal) || 0;
+        }
       }
-    });
+    }
+    setWeeklyGoalTotal(weekSum);
+  }, [todayStr]);
 
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, [router]);
-
-  // Carrega Meta e Perfil isolados por Usuário
-  const loadUserSettings = (userId: string) => {
+  const loadUserSettings = useCallback(async (userId: string) => {
     const savedProfile = localStorage.getItem(`@app:workProfile:${userId}`) as 'motoboy' | 'driver' | null;
     if (savedProfile) {
       setWorkProfile(savedProfile);
@@ -129,30 +137,139 @@ export default function Dashboard() {
       setIsProfileModalOpen(true);
     }
 
-    const savedDailyGoal = localStorage.getItem(`@app:dailyGoal:${userId}`);
-    if (savedDailyGoal) {
-      const parsed = parseFloat(savedDailyGoal);
-      if (!isNaN(parsed)) {
-        setDailyGoal(parsed);
-        setTempGoalInput(parsed.toString());
+    const { data: profileData } = await supabase
+      .from('user_profiles')
+      .select('daily_goal')
+      .eq('user_id', userId)
+      .single();
+
+    if (profileData?.daily_goal) {
+      const val = Number(profileData.daily_goal);
+      setDailyGoal(val);
+      setTempDailyGoal(val.toString());
+    } else {
+      const savedDailyGoal = localStorage.getItem(`@app:dailyGoal:${userId}`);
+      if (savedDailyGoal) {
+        const val = parseFloat(savedDailyGoal) || 150;
+        setDailyGoal(val);
+        setTempDailyGoal(val.toString());
       }
     }
-  };
 
-  const handleSelectProfile = (profile: 'motoboy' | 'driver') => {
-    setWorkProfile(profile);
-    if (user) {
-      localStorage.setItem(`@app:workProfile:${user.id}`, profile);
-    }
-  };
+    const savedTodayProgress = localStorage.getItem(`@app:todayProgress:${userId}:${todayStr}`);
+    const currentDayVal = savedTodayProgress ? parseFloat(savedTodayProgress) || 0 : 0;
+    setTodayProgress(currentDayVal);
 
-  const handleSaveDailyGoal = () => {
-    const parsed = parseFloat(tempGoalInput.replace(',', '.'));
-    if (!isNaN(parsed) && parsed > 0 && user) {
-      setDailyGoal(parsed);
-      localStorage.setItem(`@app:dailyGoal:${user.id}`, parsed.toString());
+    calculateWeeklyTotal(userId, currentDayVal);
+  }, [todayStr, calculateWeeklyTotal]);
+
+  const loadDashboardMetrics = useCallback(async (userId: string) => {
+    setLoadingDashboardData(true);
+    try {
+      const { data: txs } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (txs) {
+        const incomes = txs.filter(t => t.type === 'income').reduce((acc, t) => acc + Number(t.amount || 0), 0);
+        const expenses = txs.filter(t => t.type === 'expense').reduce((acc, t) => acc + Number(t.amount || 0), 0);
+        setTotalIncomes(incomes);
+        setTotalExpenses(expenses);
+
+        const catMap: { [key: string]: number } = {};
+        txs.filter(t => t.type === 'expense').forEach(t => {
+          catMap[t.category] = (catMap[t.category] || 0) + Number(t.amount);
+        });
+        setCategoryData(Object.keys(catMap).map(cat => ({ name: cat, value: catMap[cat] })));
+
+        const dateMap: { [key: string]: { income: number; expense: number } } = {};
+        txs.forEach(t => {
+          const dateStr = t.date;
+          if (!dateMap[dateStr]) dateMap[dateStr] = { income: 0, expense: 0 };
+          if (t.type === 'income') dateMap[dateStr].income += Number(t.amount);
+          else dateMap[dateStr].expense += Number(t.amount);
+        });
+
+        setEvolutionData(
+          Object.keys(dateMap).sort().map(date => ({
+            date: date.split('-').reverse().slice(0, 2).join('/'),
+            Entradas: dateMap[date].income,
+            Saídas: dateMap[date].expense
+          }))
+        );
+      }
+    } catch (err) {
+      console.error('Erro ao carregar métricas:', err);
+    } finally {
+      setLoadingDashboardData(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push('/login');
+      } else {
+        setUser(session.user);
+        await loadUserSettings(session.user.id);
+        await loadDashboardMetrics(session.user.id);
+      }
+      setAuthChecking(false);
+    };
+
+    checkUser();
+  }, [router, loadUserSettings, loadDashboardMetrics]);
+
+  const handleSaveDailyGoal = async () => {
+    const val = parseFloat(tempDailyGoal);
+    if (isNaN(val) || val <= 0) return;
+    setDailyGoal(val);
     setIsEditingGoal(false);
+
+    if (user) {
+      localStorage.setItem(`@app:dailyGoal:${user.id}`, val.toString());
+      await supabase
+        .from('user_profiles')
+        .upsert({ user_id: user.id, daily_goal: val }, { onConflict: 'user_id' });
+    }
+  };
+
+  const handleAddTodayProgress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(quickInputAmount);
+    if (isNaN(val) || val === 0) return;
+
+    const newTotal = todayProgress + val;
+    setTodayProgress(newTotal);
+    setQuickInputAmount('');
+
+    if (user) {
+      localStorage.setItem(`@app:todayProgress:${user.id}:${todayStr}`, newTotal.toString());
+      calculateWeeklyTotal(user.id, newTotal);
+
+      await supabase.from('transactions').insert([
+        {
+          user_id: user.id,
+          title: 'Meta Diária / Faturamento',
+          amount: val,
+          type: 'income',
+          category: 'Trabalho / Corridas',
+          date: todayStr
+        }
+      ]);
+
+      await loadDashboardMetrics(user.id);
+    }
+  };
+
+  const handleResetTodayProgress = async () => {
+    if (user && todayProgress > 0) {
+      localStorage.removeItem(`@app:todayProgress:${user.id}:${todayStr}`);
+      setTodayProgress(0);
+      calculateWeeklyTotal(user.id, 0);
+    }
   };
 
   const handleLogout = async () => {
@@ -160,557 +277,425 @@ export default function Dashboard() {
     router.push('/login');
   };
 
-  // 2. BUSCA DADOS APENAS DO USUÁRIO LOGADO
-  const fetchData = async () => {
-    if (!user) return;
-    setLoading(true);
-
-    const { data: txData } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(30);
-
-    const { data: accData } = await supabase
-      .from('accounts')
-      .select('*')
-      .eq('user_id', user.id);
-
-    const { data: cardData } = await supabase
-      .from('credit_cards')
-      .select('*')
-      .eq('user_id', user.id);
-
-    setAccounts(accData || []);
-    setCards(cardData || []);
-
-    if (txData) {
-      setTransactions(txData);
-
-      let inc = 0;
-      let exp = 0;
-      let gol = 0;
-      let inv = 0;
-
-      txData.forEach((tx) => {
-        const val = Number(tx.amount) || 0;
-        const desc = tx.description || '';
-
-        if (desc.includes('[GOAL]')) {
-          gol += val;
-        } else if (desc.includes('[INVESTMENT]')) {
-          inv += val;
-        } else if (tx.type === 'income') {
-          inc += val;
-        } else if (tx.type === 'expense') {
-          exp += val;
-        }
-      });
-
-      setTotals({
-        income: inc,
-        expense: exp,
-        goals: gol,
-        investments: inv,
-        balance: inc - exp - gol - inv
-      });
-    }
-
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    if (user) {
-      fetchData();
-    }
-  }, [user]);
-
-  // Filtra ganhos do dia
-  const todayIncome = transactions
-    .filter((tx) => {
-      if (tx.type !== 'income') return false;
-      const txDate = new Date(tx.created_at);
-      const today = new Date();
-      return (
-        txDate.getDate() === today.getDate() &&
-        txDate.getMonth() === today.getMonth() &&
-        txDate.getFullYear() === today.getFullYear()
-      );
-    })
-    .reduce((acc, tx) => acc + Number(tx.amount || 0), 0);
-
-  const goalPercentage = dailyGoal > 0 ? Math.min(100, Math.round((todayIncome / dailyGoal) * 100)) : 0;
-  const goalRemaining = Math.max(0, dailyGoal - todayIncome);
-
-  const openQuickModal = (type: 'expense' | 'income' | 'goal' | 'investment') => {
-    setModalType(type);
-    setIsModalOpen(true);
-  };
-
-  const openAddModal = (mode: 'account' | 'card') => {
-    setAddMode(mode);
-    setIsAddAccountCardOpen(true);
-  };
-
-  const getCardSpent = (cardId: string) => {
-    return transactions
-      .filter((tx) => tx.credit_card_id === cardId || (tx.payment_method === 'credit_card' && tx.credit_card_id === cardId))
-      .reduce((acc, tx) => acc + Number(tx.amount || 0), 0);
-  };
-
   if (authChecking) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-xs">
-        Verificando autenticação...
+      <div className="min-h-screen bg-[#0A1F5B] flex items-center justify-center text-[#C7B8FF] text-xs font-semibold">
+        Carregando informações do Fluxo Pay...
       </div>
     );
   }
 
+  const netBalance = totalIncomes - totalExpenses;
+  const progressPercentage = dailyGoal > 0 ? Math.min(Math.round((todayProgress / dailyGoal) * 100), 100) : 0;
+  const actualPercentageRaw = dailyGoal > 0 ? Math.round((todayProgress / dailyGoal) * 100) : 0;
+  const COLORS = ['#00D1FF', '#3B82F6', '#7C3AED', '#C7B8FF', '#0A1F5B'];
+
+  // Variáveis dinâmicas para troca de temas
+  const isDark = theme === 'dark';
+
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 w-full pb-28 md:pb-12 px-4 md:px-8 pt-6">
+    <div className={`min-h-screen flex p-3 md:p-5 gap-4 relative overflow-hidden transition-colors duration-300 ${isDark ? 'bg-[#0A1F5B] text-[#F8FAFF]' : 'bg-[#F8FAFF] text-[#0A1F5B]'
+      }`}>
+      {/* Background Glows com Glassmorphism */}
+      <div className={`absolute top-[-10%] left-[-10%] w-[40vw] h-[40vw] rounded-full blur-[120px] pointer-events-none ${isDark ? 'bg-[#00D1FF]/10' : 'bg-[#00D1FF]/20'}`} />
+      <div className={`absolute bottom-[-10%] right-[-10%] w-[40vw] h-[40vw] rounded-full blur-[120px] pointer-events-none ${isDark ? 'bg-[#7C3AED]/15' : 'bg-[#7C3AED]/10'}`} />
 
-      <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-300">
+      <Sidebar
+        activeTab={currentTab}
+        setActiveTab={handleTabChange}
+        onLogout={handleLogout}
+        isOpen={isSidebarOpen}
+        setIsOpen={setIsSidebarOpen}
+      />
 
-        {/* CABEÇALHO COM EMAIL DO USUÁRIO E BOTÃO DE SAIR */}
-        <div className="flex justify-between items-center">
-          <div>
+      <main className="flex-1 w-full pb-20 lg:pb-6 px-1 md:px-3 pt-2 overflow-y-auto z-10">
+        <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-300">
+
+          {/* Topbar com controle de Tema */}
+          <div className="flex justify-between items-center pl-12 lg:pl-0">
+            <div>
+              <span className="text-xs text-[#00D1FF] font-black tracking-widest uppercase">Fluxo Pay</span>
+              <h1 className={`text-xl md:text-2xl font-extrabold flex items-center gap-2 mt-0.5 capitalize ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                {currentTab === 'dashboard' ? 'Visão Geral' : currentTab.replace(/-/g, ' ')}{' '}
+                <Sparkles size={18} className="text-[#00D1FF] animate-pulse" />
+              </h1>
+            </div>
+
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400 font-medium">Sua vida financeira</span>
-
               <button
-                onClick={() => setIsProfileModalOpen(true)}
-                className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold transition-all border flex items-center gap-1 active:scale-95 bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300"
-              >
-                {workProfile === 'motoboy' ? (
-                  <>
-                    <Bike size={12} className="text-emerald-400" />
-                    <span>Motoboy</span>
-                  </>
-                ) : workProfile === 'driver' ? (
-                  <>
-                    <Car size={12} className="text-indigo-400" />
-                    <span>Motorista</span>
-                  </>
-                ) : (
-                  <span>+ Perfil</span>
-                )}
-              </button>
-            </div>
-
-            <h1 className="text-xl md:text-2xl font-extrabold text-white flex items-center gap-2 mt-0.5">
-              Dashboard <Sparkles size={18} className="text-amber-400 animate-pulse" />
-            </h1>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* EMAIL DO USUÁRIO + BOTÃO SAIR */}
-            <div className="hidden sm:flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-2xl px-3 py-1.5 text-xs text-slate-300">
-              <User size={14} className="text-emerald-400" />
-              <span className="max-w-[120px] truncate">{user?.email}</span>
-            </div>
-
-            <button
-              onClick={handleLogout}
-              title="Sair da conta"
-              className="p-2.5 bg-slate-900 hover:bg-rose-500/10 hover:text-rose-400 text-slate-400 rounded-2xl border border-slate-800 transition-all active:scale-95"
-            >
-              <LogOut size={16} />
-            </button>
-
-            <button
-              onClick={() => openQuickModal('expense')}
-              className="hidden md:flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-500/20 active:scale-95 hover:scale-105"
-            >
-              <Plus size={16} strokeWidth={3} />
-              Novo Lançamento
-            </button>
-          </div>
-        </div>
-
-        {/* WIDGET DE META DIÁRIA */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl relative overflow-hidden space-y-3">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl">
-                <Trophy size={18} />
-              </div>
-              <div>
-                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Meta Diária de Hoje</h3>
-                <p className="text-[11px] text-slate-400">
-                  Acompanhe seus ganhos do dia em tempo real
-                </p>
-              </div>
-            </div>
-
-            {isEditingGoal ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={tempGoalInput}
-                  onChange={(e) => setTempGoalInput(e.target.value)}
-                  className="w-20 bg-slate-950 border border-amber-500/50 rounded-lg px-2 py-1 text-xs text-white font-bold text-center focus:outline-none"
-                  placeholder="Ex: 200"
-                />
-                <button
-                  onClick={handleSaveDailyGoal}
-                  className="bg-amber-500 text-slate-950 px-2.5 py-1 rounded-lg text-xs font-extrabold hover:bg-amber-400 transition-all active:scale-95"
-                >
-                  Salvar
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setIsEditingGoal(true)}
-                className="flex items-center gap-1.5 px-3 py-1 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-slate-700/60 active:scale-95"
-              >
-                <span>Meta: R$ {dailyGoal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                <Pencil size={12} className="text-amber-400" />
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-1.5 pt-1">
-            <div className="flex justify-between items-end text-xs">
-              <span className="font-extrabold text-amber-400 text-sm">
-                R$ {todayIncome.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} <span className="text-slate-400 text-xs font-normal">ganhos hoje</span>
-              </span>
-              <span className="text-xs font-bold text-slate-300">
-                {goalPercentage}%
-              </span>
-            </div>
-
-            <div className="w-full bg-slate-950 rounded-full h-3.5 p-0.5 border border-slate-800/80 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-700 ${goalPercentage >= 100
-                    ? 'bg-gradient-to-r from-emerald-500 to-teal-400 shadow-lg shadow-emerald-500/30'
-                    : 'bg-gradient-to-r from-amber-500 to-orange-400'
+                onClick={toggleTheme}
+                className={`p-2.5 rounded-2xl border text-xs font-bold transition-all shadow-md active:scale-95 ${isDark
+                  ? 'bg-white/[0.05] border-white/10 text-[#C7B8FF] hover:text-[#00D1FF]'
+                  : 'bg-white border-[#3B82F6]/20 text-[#3B82F6] hover:bg-slate-100'
                   }`}
-                style={{ width: `${goalPercentage}%` }}
-              />
-            </div>
-
-            <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
-              {goalPercentage >= 100 ? (
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <CheckCircle2 size={13} /> 🎉 Parabéns! Meta batida hoje!
-                </span>
-              ) : (
-                <span>
-                  Faltam <strong className="text-amber-400 font-bold">R$ {goalRemaining.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> para atingir sua meta
-                </span>
-              )}
-              <span>Objetivo: R$ {dailyGoal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* GRID PRINCIPAL (SALDO + PILARES) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8 bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-5 md:p-7 shadow-2xl relative overflow-hidden space-y-6 transition-all hover:border-slate-700/80">
-            <div className="absolute top-0 right-0 translate-x-4 -translate-y-4 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-
-            <div className="space-y-1">
-              <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-                <Wallet size={15} className="text-emerald-400" /> Saldo Livre Atual
-              </span>
-              <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight">
-                R$ {totals.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-              </h2>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <button
-                onClick={() => openQuickModal('income')}
-                className="bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 p-3.5 rounded-2xl text-left transition-all group hover:scale-[1.02] active:scale-95"
+                title="Alternar Tema Dark / Light"
               >
-                <div className="flex justify-between items-center text-emerald-400 mb-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Ganhos</span>
-                  <TrendingUp size={14} className="group-hover:scale-110 transition-transform" />
-                </div>
-                <p className="text-sm md:text-base font-black text-emerald-400 truncate">
-                  + R$ {totals.income.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </p>
+                {isDark ? <Sun size={17} /> : <Moon size={17} />}
               </button>
 
               <button
-                onClick={() => openQuickModal('expense')}
-                className="bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 p-3.5 rounded-2xl text-left transition-all group hover:scale-[1.02] active:scale-95"
+                onClick={() => {
+                  setModalType('expense');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-2 bg-gradient-to-r from-[#00D1FF] to-[#3B82F6] hover:opacity-90 text-[#0A1F5B] px-4 py-2.5 rounded-2xl text-xs font-black transition-all shadow-lg shadow-[#00D1FF]/20 active:scale-95 border border-white/20"
               >
-                <div className="flex justify-between items-center text-rose-400 mb-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Gastos</span>
-                  <TrendingDown size={14} className="group-hover:scale-110 transition-transform" />
-                </div>
-                <p className="text-sm md:text-base font-black text-rose-400 truncate">
-                  - R$ {totals.expense.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </p>
-              </button>
-
-              <button
-                onClick={() => openQuickModal('goal')}
-                className="bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 p-3.5 rounded-2xl text-left transition-all group hover:scale-[1.02] active:scale-95"
-              >
-                <div className="flex justify-between items-center text-indigo-400 mb-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Metas</span>
-                  <Target size={14} className="group-hover:scale-110 transition-transform" />
-                </div>
-                <p className="text-sm md:text-base font-black text-indigo-400 truncate">
-                  R$ {totals.goals.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </p>
-              </button>
-
-              <button
-                onClick={() => openQuickModal('investment')}
-                className="bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 p-3.5 rounded-2xl text-left transition-all group hover:scale-[1.02] active:scale-95"
-              >
-                <div className="flex justify-between items-center text-amber-400 mb-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Investidos</span>
-                  <LineChart size={14} className="group-hover:scale-110 transition-transform" />
-                </div>
-                <p className="text-sm md:text-base font-black text-amber-400 truncate">
-                  R$ {totals.investments.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </p>
+                <Plus size={16} strokeWidth={3} />
+                <span className="hidden sm:inline">Novo Lançamento</span>
               </button>
             </div>
           </div>
 
-          {/* PAINEL DE CONTAS E CARTÕES */}
-          <div className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-3xl p-5 flex flex-col justify-between space-y-4 shadow-xl">
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-                  <button
-                    onClick={() => setActiveTab('cards')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === 'cards'
-                        ? 'bg-slate-800 text-indigo-400 shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                  >
-                    <CreditCard size={13} /> Cartões
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('accounts')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === 'accounts'
-                        ? 'bg-slate-800 text-emerald-400 shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                  >
-                    <Building2 size={13} /> Bancos
-                  </button>
-                </div>
+          {/* DASHBOARD PRINCIPAL */}
+          {currentTab === 'dashboard' && (
+            <div className="space-y-6 animate-in fade-in duration-300">
 
-                <button
-                  onClick={() => openAddModal(activeTab === 'cards' ? 'card' : 'account')}
-                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95 flex items-center gap-1 border border-slate-700/50"
-                >
-                  <Plus size={14} className={activeTab === 'cards' ? 'text-indigo-400' : 'text-emerald-400'} />
-                  <span className="hidden sm:inline">Novo</span>
-                </button>
-              </div>
+              {/* META DIÁRIA & GLASSMORPHISM CARD */}
+              <div className={`backdrop-blur-2xl border p-6 rounded-3xl space-y-6 shadow-2xl relative ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white/70 border-slate-200 shadow-slate-200/50'
+                }`}>
+                <div className="absolute inset-0 bg-gradient-to-r from-[#00D1FF]/5 via-transparent to-[#7C3AED]/10 rounded-3xl pointer-events-none" />
 
-              <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-none">
-                {activeTab === 'cards' && (
-                  cards.length === 0 ? (
-                    <div className="text-center py-8 text-xs text-slate-500 bg-slate-950/40 rounded-2xl border border-slate-800/80 space-y-2">
-                      <CreditCard size={24} className="mx-auto text-slate-600" />
-                      <p>Nenhum cartão cadastrado.</p>
-                      <button
-                        onClick={() => openAddModal('card')}
-                        className="text-indigo-400 font-bold hover:underline"
-                      >
-                        + Adicionar primeiro cartão
-                      </button>
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative z-10">
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center gap-2 bg-[#00D1FF]/10 text-[#00D1FF] border border-[#00D1FF]/20 px-3 py-1 rounded-full text-[11px] font-bold">
+                      <Sparkles size={13} className="text-[#00D1FF]" /> Faturamento Diário & Semanal
                     </div>
-                  ) : (
-                    cards.map((card) => {
-                      const spent = getCardSpent(card.id);
-                      const limit = Number(card.limit_amount) || 0;
-                      const available = Math.max(0, limit - spent);
-                      const percentage = limit > 0 ? Math.min(100, Math.round((spent / limit) * 100)) : 0;
-                      const progressColor = percentage > 80 ? 'bg-rose-500' : percentage > 50 ? 'bg-amber-500' : 'bg-indigo-500';
+                    <h2 className={`text-lg font-black ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                      Meta de Hoje: {actualPercentageRaw}% alcançado
+                    </h2>
+                    <p className={`text-xs max-w-xl leading-relaxed ${isDark ? 'text-[#C7B8FF]/80' : 'text-slate-600'}`}>
+                      Sua contabilidade sincronizada em tempo real com a nova experiência Fluxo Pay.
+                    </p>
+                  </div>
 
-                      return (
-                        <div
-                          key={card.id}
-                          className="bg-slate-950/80 border border-slate-800/80 p-3.5 rounded-2xl space-y-2 hover:border-slate-700 transition-all"
-                        >
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="font-bold text-slate-200 flex items-center gap-2">
-                              <CreditCard size={14} className="text-indigo-400" />
-                              {card.name}
-                            </span>
-                            <span className="text-[11px] font-medium text-slate-400">
-                              Fatura: <strong className="text-rose-400 font-extrabold">R$ {spent.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
-                            </span>
-                          </div>
-
-                          <div className="space-y-1">
-                            <div className="w-full bg-slate-800/90 rounded-full h-2 overflow-hidden">
-                              <div
-                                className={`h-full ${progressColor} transition-all duration-500 rounded-full`}
-                                style={{ width: `${percentage}%` }}
-                              />
-                            </div>
-                            <div className="flex justify-between text-[10px] text-slate-400 font-medium pt-0.5">
-                              <span>Livre: <strong className="text-emerald-400">R$ {available.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
-                              <span>Limite: R$ {limit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} ({percentage}%)</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )
-                )}
-
-                {activeTab === 'accounts' && (
-                  accounts.length === 0 ? (
-                    <div className="text-center py-8 text-xs text-slate-500 bg-slate-950/40 rounded-2xl border border-slate-800/80 space-y-2">
-                      <Wallet size={24} className="mx-auto text-slate-600" />
-                      <p>Nenhuma conta cadastrada.</p>
-                      <button
-                        onClick={() => openAddModal('account')}
-                        className="text-emerald-400 font-bold hover:underline"
-                      >
-                        + Adicionar primeira conta
-                      </button>
-                    </div>
-                  ) : (
-                    accounts.map((acc) => (
-                      <div
-                        key={acc.id}
-                        className="flex justify-between items-center bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800/80 text-xs hover:border-slate-700 transition-all"
-                      >
-                        <span className="flex items-center gap-2 font-bold text-slate-200">
-                          <Building2 size={15} className="text-emerald-400" /> {acc.name}
-                        </span>
-                        <span className="font-black text-emerald-400 text-sm">
-                          R$ {Number(acc.balance).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    ))
-                  )
-                )}
-              </div>
-            </div>
-
-            <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80 text-[11px] text-slate-400">
-              💡 <strong className="text-slate-200">Dica:</strong> Toque em <strong className="text-indigo-400 font-bold">+ Novo</strong> para incluir faturas e bancos na sua visão.
-            </div>
-          </div>
-        </div>
-
-        {/* ÚLTIMAS TRANSAÇÕES */}
-        <div className="space-y-3 pt-2">
-          <div className="flex justify-between items-center">
-            <h3 className="text-sm font-bold text-slate-200">Últimos Lançamentos</h3>
-            <span className="text-xs text-slate-500 hover:text-slate-300 cursor-pointer flex items-center gap-0.5">
-              Ver todos <ChevronRight size={14} />
-            </span>
-          </div>
-
-          {loading ? (
-            <div className="text-center py-6 text-xs text-slate-500 animate-pulse">Carregando dados...</div>
-          ) : transactions.length === 0 ? (
-            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 text-center space-y-2">
-              <p className="text-xs text-slate-400">Nenhum lançamento registrado ainda.</p>
-              <p className="text-[11px] text-slate-500">Clique no botão (+) para fazer seu primeiro registro em segundos!</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {transactions.map((tx) => {
-                const isIncome = tx.type === 'income';
-                const isGoal = tx.description?.includes('[GOAL]');
-                const isInv = tx.description?.includes('[INVESTMENT]');
-
-                return (
-                  <div
-                    key={tx.id}
-                    className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-3.5 flex justify-between items-center transition-all hover:border-slate-700 hover:scale-[1.01] active:scale-98"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2.5 rounded-xl transition-transform hover:scale-110 ${isIncome
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : isGoal
-                            ? 'bg-indigo-500/10 text-indigo-400'
-                            : isInv
-                              ? 'bg-amber-500/10 text-amber-400'
-                              : 'bg-rose-500/10 text-rose-400'
-                        }`}>
-                        {isIncome ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-slate-200 truncate max-w-[200px]">{tx.category}</p>
-                        <p className="text-[10px] text-slate-500 truncate max-w-[200px]">
-                          {tx.description?.replace(/\[(GOAL|INVESTMENT)\]\s?/, '') || 'Sem descrição'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <p className={`text-xs font-extrabold ${isIncome ? 'text-emerald-400' : 'text-slate-200'
-                        }`}>
-                        {isIncome ? '+' : '-'} R$ {Number(tx.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </p>
-                      <span className="text-[10px] text-slate-500">
-                        {new Date(tx.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                  {/* Configuração de Meta Diária e Faturamento Semanal */}
+                  <div className="flex items-center gap-3">
+                    <div className={`backdrop-blur-md border p-4 rounded-2xl flex flex-col gap-1 min-w-[150px] shadow-inner ${isDark ? 'bg-[#0A1F5B]/60 border-white/10' : 'bg-white/80 border-slate-200'
+                      }`}>
+                      <span className={`text-[10px] font-semibold flex items-center gap-1 ${isDark ? 'text-[#C7B8FF]' : 'text-slate-500'}`}>
+                        <CalendarDays size={12} className="text-[#00D1FF]" /> Faturado na Semana
                       </span>
+                      <div className={`text-lg font-black ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                        R$ {weeklyGoalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    <div className={`backdrop-blur-md border p-4 rounded-2xl flex flex-col gap-1 min-w-[150px] shadow-inner ${isDark ? 'bg-[#0A1F5B]/60 border-white/10' : 'bg-white/80 border-slate-200'
+                      }`}>
+                      <div className={`flex items-center justify-between text-[10px] font-semibold ${isDark ? 'text-[#C7B8FF]' : 'text-slate-500'}`}>
+                        <span>Meta Diária</span>
+                        <button
+                          onClick={() => setIsEditingGoal(!isEditingGoal)}
+                          className="text-[#00D1FF] hover:underline flex items-center gap-0.5"
+                        >
+                          <Settings2 size={11} /> {isEditingGoal ? 'Fechar' : 'Editar'}
+                        </button>
+                      </div>
+
+                      {isEditingGoal ? (
+                        <div className="flex items-center gap-1 mt-1">
+                          <input
+                            type="number"
+                            step="10"
+                            value={tempDailyGoal}
+                            onChange={(e) => setTempDailyGoal(e.target.value)}
+                            className={`w-full border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-[#00D1FF] font-bold ${isDark ? 'bg-[#0A1F5B] border-[#3B82F6]/50 text-[#F8FAFF]' : 'bg-slate-50 border-slate-300 text-[#0A1F5B]'
+                              }`}
+                          />
+                          <button
+                            onClick={handleSaveDailyGoal}
+                            className="bg-[#00D1FF] hover:opacity-90 text-[#0A1F5B] p-1.5 rounded-lg text-xs font-bold shrink-0"
+                            title="Salvar"
+                          >
+                            <Check size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-lg font-black text-[#00D1FF]">
+                          R$ {dailyGoal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </div>
+                      )}
                     </div>
                   </div>
-                );
-              })}
+                </div>
+
+                {/* BARRA DE PROGRESSO E ADIÇÃO RÁPIDA */}
+                <div className={`backdrop-blur-md border p-5 rounded-2xl space-y-4 relative z-10 shadow-inner ${isDark ? 'bg-[#0A1F5B]/50 border-white/10' : 'bg-slate-100/70 border-slate-200'
+                  }`}>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
+                    <div>
+                      <span className={isDark ? 'text-[#C7B8FF] font-medium' : 'text-slate-600 font-medium'}>Faturado Hoje: </span>
+                      <strong className={`text-sm font-black ml-1 ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                        R$ {todayProgress.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </strong>
+                      <span className={`ml-2 ${isDark ? 'text-[#C7B8FF]/60' : 'text-slate-500'}`}>({actualPercentageRaw}% da meta)</span>
+                    </div>
+
+                    {todayProgress > 0 && (
+                      <button
+                        onClick={handleResetTodayProgress}
+                        className={`text-[10px] underline font-medium ${isDark ? 'text-[#C7B8FF]/75 hover:text-rose-400' : 'text-slate-500 hover:text-rose-600'}`}
+                      >
+                        Limpar visualização de hoje
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Barra visual de progresso */}
+                  <div className={`h-3 rounded-full overflow-hidden border p-0.5 ${isDark ? 'bg-[#0A1F5B] border-white/10' : 'bg-slate-200 border-slate-300'}`}>
+                    <div
+                      className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-[#00D1FF] via-[#3B82F6] to-[#7C3AED]"
+                      style={{ width: `${progressPercentage}%` }}
+                    />
+                  </div>
+
+                  {/* Input rápido */}
+                  <form onSubmit={handleAddTodayProgress} className="flex items-center gap-2 pt-1">
+                    <div className="relative flex-1">
+                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs text-[#00D1FF] font-bold">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Ex: 45.00 (adicionar valor de corrida/entrega)"
+                        value={quickInputAmount}
+                        onChange={(e) => setQuickInputAmount(e.target.value)}
+                        className={`w-full border rounded-xl pl-9 pr-4 py-2.5 text-xs focus:outline-none focus:border-[#00D1FF] font-medium ${isDark
+                          ? 'bg-[#0A1F5B]/80 border-white/10 text-[#F8FAFF] placeholder-[#C7B8FF]/40'
+                          : 'bg-white border-slate-200 text-[#0A1F5B] placeholder-slate-400'
+                          }`}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="bg-gradient-to-r from-[#00D1FF] to-[#3B82F6] hover:opacity-90 text-[#0A1F5B] px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all active:scale-95 shrink-0 shadow-lg shadow-[#00D1FF]/20 border border-white/20"
+                    >
+                      <PlusCircle size={15} /> Adicionar ao Saldo
+                    </button>
+                  </form>
+                </div>
+
+              </div>
+
+              {/* Cards de Resumo */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className={`backdrop-blur-xl border p-5 rounded-3xl space-y-3 shadow-xl relative overflow-hidden group transition-all ${isDark ? 'bg-white/[0.03] border-white/10 hover:border-[#00D1FF]/40' : 'bg-white border-slate-200 shadow-slate-200/50 hover:border-[#00D1FF]/40'
+                  }`}>
+                  <div className={`flex items-center justify-between ${isDark ? 'text-[#C7B8FF]' : 'text-slate-500'}`}>
+                    <span className="text-xs font-semibold">Saldo Líquido</span>
+                    <div className="p-2 bg-[#00D1FF]/10 text-[#00D1FF] rounded-xl border border-[#00D1FF]/20">
+                      <Wallet size={18} />
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className={`text-2xl font-black ${netBalance >= 0 ? (isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]') : 'text-rose-400'}`}>
+                      R$ {netBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </h3>
+                    <p className="text-[11px] text-[#00D1FF] font-medium mt-1">Consolidado geral</p>
+                  </div>
+                </div>
+
+                <div className={`backdrop-blur-xl border p-5 rounded-3xl space-y-3 shadow-xl relative overflow-hidden group transition-all ${isDark ? 'bg-white/[0.03] border-white/10 hover:border-[#3B82F6]/40' : 'bg-white border-slate-200 shadow-slate-200/50 hover:border-[#3B82F6]/40'
+                  }`}>
+                  <div className={`flex items-center justify-between ${isDark ? 'text-[#C7B8FF]' : 'text-slate-500'}`}>
+                    <span className="text-xs font-semibold">Ganhos Totais</span>
+                    <div className="p-2 bg-[#3B82F6]/10 text-[#3B82F6] rounded-xl border border-[#3B82F6]/20">
+                      <ArrowUpCircle size={18} />
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className={`text-2xl font-black ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                      R$ {totalIncomes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </h3>
+                    <p className={`text-[11px] font-medium mt-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Entradas registradas</p>
+                  </div>
+                </div>
+
+                <div className={`backdrop-blur-xl border p-5 rounded-3xl space-y-3 shadow-xl relative overflow-hidden group transition-all ${isDark ? 'bg-white/[0.03] border-white/10 hover:border-rose-500/40' : 'bg-white border-slate-200 shadow-slate-200/50 hover:border-rose-500/40'
+                  }`}>
+                  <div className={`flex items-center justify-between ${isDark ? 'text-[#C7B8FF]' : 'text-slate-500'}`}>
+                    <span className="text-xs font-semibold">Gastos Totais</span>
+                    <div className="p-2 bg-rose-500/10 text-rose-500 rounded-xl border border-rose-500/20">
+                      <ArrowDownCircle size={18} />
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className={`text-2xl font-black ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                      R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </h3>
+                    <p className={`text-[11px] font-medium mt-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Saídas registradas</p>
+                  </div>
+                </div>
+
+                <div className={`backdrop-blur-xl border p-5 rounded-3xl space-y-3 shadow-xl relative overflow-hidden group transition-all ${isDark ? 'bg-white/[0.03] border-white/10 hover:border-[#7C3AED]/40' : 'bg-white border-slate-200 shadow-slate-200/50 hover:border-[#7C3AED]/40'
+                  }`}>
+                  <div className={`flex items-center justify-between ${isDark ? 'text-[#C7B8FF]' : 'text-slate-500'}`}>
+                    <span className="text-xs font-semibold">Meta Diária Alvo</span>
+                    <div className="p-2 bg-[#7C3AED]/10 text-[#7C3AED] rounded-xl border border-[#7C3AED]/20">
+                      <Target size={18} />
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black text-[#7C3AED]">
+                      R$ {dailyGoal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </h3>
+                    <p className={`text-[11px] font-medium mt-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Objetivo por jornada</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* GRÁFICOS VISUAIS COM ESTILO GLASS */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className={`backdrop-blur-xl border p-6 rounded-3xl space-y-4 shadow-xl ${isDark ? 'bg-white/[0.03] border-white/10' : 'bg-white border-slate-200 shadow-slate-200/50'
+                  }`}>
+                  <div className="flex items-center justify-between">
+                    <h3 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                      <TrendingUp size={16} className="text-[#00D1FF]" /> Evolução de Entradas x Saídas
+                    </h3>
+                  </div>
+                  <div className="h-64 w-full">
+                    {evolutionData.length === 0 ? (
+                      <div className={`h-full flex items-center justify-center text-xs ${isDark ? 'text-[#C7B8FF]/50' : 'text-slate-400'}`}>
+                        Nenhum dado lançado para o gráfico temporal.
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={evolutionData}>
+                          <XAxis dataKey="date" stroke={isDark ? '#C7B8FF' : '#64748b'} fontSize={11} />
+                          <YAxis stroke={isDark ? '#C7B8FF' : '#64748b'} fontSize={11} />
+                          <Tooltip contentStyle={{ backgroundColor: isDark ? '#0A1F5B' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1', borderRadius: '12px', fontSize: '12px', color: isDark ? '#F8FAFF' : '#0A1F5B' }} />
+                          <Area type="monotone" dataKey="Entradas" stroke="#00D1FF" fill="#00D1FF" fillOpacity={0.25} />
+                          <Area type="monotone" dataKey="Saídas" stroke="#7C3AED" fill="#7C3AED" fillOpacity={0.25} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+
+                <div className={`backdrop-blur-xl border p-6 rounded-3xl space-y-4 shadow-xl ${isDark ? 'bg-white/[0.03] border-white/10' : 'bg-white border-slate-200 shadow-slate-200/50'
+                  }`}>
+                  <div className="flex items-center justify-between">
+                    <h3 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                      <PieChartIcon size={16} className="text-[#7C3AED]" /> Distribuição de Gastos por Categoria
+                    </h3>
+                  </div>
+                  <div className="h-64 w-full flex items-center justify-center">
+                    {categoryData.length === 0 ? (
+                      <div className={`h-full flex items-center justify-center text-xs ${isDark ? 'text-[#C7B8FF]/50' : 'text-slate-400'}`}>
+                        Nenhum gasto registrado para exibir categorias.
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Tooltip contentStyle={{ backgroundColor: isDark ? '#0A1F5B' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1', borderRadius: '12px', fontSize: '12px', color: isDark ? '#F8FAFF' : '#0A1F5B' }} />
+                          <Pie data={categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} dataKey="value">
+                            {categoryData.map((_, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Atalhos Rápidos */}
+              <div className={`backdrop-blur-xl border rounded-3xl p-6 space-y-4 shadow-xl ${isDark ? 'bg-white/[0.03] border-white/10' : 'bg-white border-slate-200 shadow-slate-200/50'
+                }`}>
+                <h3 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                  <Clock size={16} className="text-[#00D1FF]" /> Acesso Rápido às Abas
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <button
+                    onClick={() => handleTabChange('plano-de-vida')}
+                    className={`flex items-center justify-between p-4 border rounded-2xl text-left transition-all active:scale-95 group shadow-inner ${isDark ? 'bg-[#0A1F5B]/60 hover:bg-[#0A1F5B] border-white/10' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                      }`}
+                  >
+                    <div>
+                      <h4 className={`text-xs font-bold transition-colors ${isDark ? 'text-[#F8FAFF] group-hover:text-[#00D1FF]' : 'text-[#0A1F5B] group-hover:text-[#3B82F6]'}`}>Plano de Vida</h4>
+                      <p className={`text-[10px] ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Metas diárias de trabalho</p>
+                    </div>
+                    <ChevronRight size={16} className={`transition-colors ${isDark ? 'text-[#C7B8FF]/50 group-hover:text-[#00D1FF]' : 'text-slate-400 group-hover:text-[#3B82F6]'}`} />
+                  </button>
+
+                  <button
+                    onClick={() => handleTabChange('investimentos')}
+                    className={`flex items-center justify-between p-4 border rounded-2xl text-left transition-all active:scale-95 group shadow-inner ${isDark ? 'bg-[#0A1F5B]/60 hover:bg-[#0A1F5B] border-white/10' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                      }`}
+                  >
+                    <div>
+                      <h4 className={`text-xs font-bold transition-colors ${isDark ? 'text-[#F8FAFF] group-hover:text-[#00D1FF]' : 'text-[#0A1F5B] group-hover:text-[#3B82F6]'}`}>Investimentos</h4>
+                      <p className={`text-[10px] ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Carteira e reserva</p>
+                    </div>
+                    <ChevronRight size={16} className={`transition-colors ${isDark ? 'text-[#C7B8FF]/50 group-hover:text-[#00D1FF]' : 'text-slate-400 group-hover:text-[#3B82F6]'}`} />
+                  </button>
+
+                  <button
+                    onClick={() => handleTabChange('gastos-ganhos')}
+                    className={`flex items-center justify-between p-4 border rounded-2xl text-left transition-all active:scale-95 group shadow-inner ${isDark ? 'bg-[#0A1F5B]/60 hover:bg-[#0A1F5B] border-white/10' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                      }`}
+                  >
+                    <div>
+                      <h4 className={`text-xs font-bold transition-colors ${isDark ? 'text-[#F8FAFF] group-hover:text-[#00D1FF]' : 'text-[#0A1F5B] group-hover:text-[#3B82F6]'}`}>Gastos e Ganhos</h4>
+                      <p className={`text-[10px] ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Fluxo de caixa diário</p>
+                    </div>
+                    <ChevronRight size={16} className={`transition-colors ${isDark ? 'text-[#C7B8FF]/50 group-hover:text-[#00D1FF]' : 'text-slate-400 group-hover:text-[#3B82F6]'}`} />
+                  </button>
+
+                  <button
+                    onClick={() => handleTabChange('metas')}
+                    className={`flex items-center justify-between p-4 border rounded-2xl text-left transition-all active:scale-95 group shadow-inner ${isDark ? 'bg-[#0A1F5B]/60 hover:bg-[#0A1F5B] border-white/10' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                      }`}
+                  >
+                    <div>
+                      <h4 className={`text-xs font-bold transition-colors ${isDark ? 'text-[#F8FAFF] group-hover:text-[#00D1FF]' : 'text-[#0A1F5B] group-hover:text-[#3B82F6]'}`}>Metas</h4>
+                      <p className={`text-[10px] ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Objetivos e conquistas</p>
+                    </div>
+                    <ChevronRight size={16} className={`transition-colors ${isDark ? 'text-[#C7B8FF]/50 group-hover:text-[#00D1FF]' : 'text-slate-400 group-hover:text-[#3B82F6]'}`} />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
+
+          {/* DEMAIS ABAS DO SISTEMA */}
+          {currentTab === 'plano-de-vida' && (
+            <PlanoDeVidaTab userId={user?.id} dailyGoal={dailyGoal} />
+          )}
+
+          {currentTab === 'investimentos' && (
+            <InvestimentosTab userId={user?.id} dailyGoal={dailyGoal} />
+          )}
+
+          {currentTab === 'gastos-ganhos' && (
+            <GastosGanhosTab userId={user?.id} dailyGoal={dailyGoal} />
+          )}
+
+          {currentTab === 'metas' && (
+            <MetasTab userId={user?.id} monthlySavingsBase={1200} />
+          )}
+
         </div>
+      </main>
 
-      </div>
-
-      {/* BARRA FIXA MOBILE */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-md border-t border-slate-800/80 p-3 z-40">
-        <div className="flex justify-around items-center relative max-w-md mx-auto">
-          <button className="flex flex-col items-center gap-0.5 text-emerald-400 text-[10px] font-bold">
-            <Wallet size={18} />
-            Inicio
-          </button>
-
-          <button
-            onClick={() => openQuickModal('expense')}
-            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 p-4 rounded-full font-bold shadow-lg shadow-emerald-500/25 transition-all -translate-y-5 border-4 border-slate-950 active:scale-95 hover:scale-110"
-          >
-            <Plus size={24} strokeWidth={3} />
-          </button>
-
-          <button
-            onClick={handleLogout}
-            className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-rose-400 text-[10px] font-semibold"
-          >
-            <LogOut size={18} />
-            Sair
-          </button>
-        </div>
-      </div>
-
-      {/* MODAIS DA APLICAÇÃO */}
       <QuickTransactionModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSuccess={fetchData}
+        onSuccess={() => {
+          if (user) loadDashboardMetrics(user.id);
+        }}
         initialType={modalType}
-      />
-
-      <AddAccountAndCardModal
-        isOpen={isAddAccountCardOpen}
-        onClose={() => setIsAddAccountCardOpen(false)}
-        onSuccess={fetchData}
-        defaultMode={addMode}
       />
 
       <WorkProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         currentProfile={workProfile}
-        onSelect={handleSelectProfile}
+        onSelect={(p) => {
+          setWorkProfile(p);
+          if (user) localStorage.setItem(`@app:workProfile:${user.id}`, p);
+        }}
       />
-
-    </main>
+    </div>
   );
 }

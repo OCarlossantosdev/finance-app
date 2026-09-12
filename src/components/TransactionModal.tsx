@@ -273,8 +273,8 @@ export default function TransactionModal({
                         type="submit"
                         disabled={loading}
                         className={`w-full py-3 rounded-xl font-bold transition-colors ${isIncome
-                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                                : 'bg-rose-600 hover:bg-rose-500 text-white'
+                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                            : 'bg-rose-600 hover:bg-rose-500 text-white'
                             }`}
                     >
                         {loading ? 'Salvando...' : 'Salvar Lançamento'}

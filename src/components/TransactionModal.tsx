@@ -70,18 +70,22 @@ export default function TransactionModal({
 
         const val = parseFloat(amount.replace(',', '.'));
 
-        const { error: txError } = await supabase.from('transactions').insert([
-            {
-                type,
-                category,
-                amount: val,
-                description,
-                payment_method: isIncome ? 'account' : paymentMethod,
-                account_id: isIncome || paymentMethod === 'account' ? selectedAccountId || null : null,
-                credit_card_id: !isIncome && paymentMethod === 'credit_card' ? selectedCardId || null : null,
-                installments: !isIncome && paymentMethod === 'credit_card' ? installments : 1,
-            },
-        ]);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            setLoading(false);
+            return alert('Erro: Usuário não autenticado.');
+        }
+
+        const payload = {
+            user_id: user.id,
+            title: description?.trim() || category,
+            category,
+            amount: val,
+            type,
+            date: new Date().toISOString().split('T')[0],
+        };
+
+        const { error: txError } = await supabase.from('transactions').insert([payload]);
 
         if (txError) {
             setLoading(false);

@@ -47,10 +47,18 @@ export default function QuickTransactionModal({
     const [addMode, setAddMode] = useState<'account' | 'card'>('account');
 
     const loadAccountsAndCards = async () => {
-        const { data: accData } = await supabase.from('accounts').select('*');
-        const { data: cardData } = await supabase.from('credit_cards').select('*');
-        setAccounts(accData || []);
-        setCards(cardData || []);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            const { data: accData } = await supabase.from('accounts').select('*').eq('user_id', user.id);
+            const { data: cardData } = await supabase.from('credit_cards').select('*').eq('user_id', user.id);
+            setAccounts(accData || []);
+            setCards(cardData || []);
+        } else {
+            const { data: accData } = await supabase.from('accounts').select('*');
+            const { data: cardData } = await supabase.from('credit_cards').select('*');
+            setAccounts(accData || []);
+            setCards(cardData || []);
+        }
     };
 
     useEffect(() => {
@@ -78,18 +86,27 @@ export default function QuickTransactionModal({
         setLoading(true);
         const val = parseFloat(amount.replace(',', '.'));
 
-        const { error: txError } = await supabase.from('transactions').insert([
-            {
-                type: type === 'goal' || type === 'investment' ? 'expense' : type,
-                category,
-                amount: val,
-                description: `[${type.toUpperCase()}] ${description}`.trim(),
-                payment_method: paymentMethod,
-                account_id: selectedAccountId || null,
-                credit_card_id: type === 'expense' && paymentMethod === 'credit_card' ? selectedCardId || null : null,
-                installments: type === 'expense' && paymentMethod === 'credit_card' ? installments : 1,
-            },
-        ]);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            setLoading(false);
+            alert('Erro: Usuário não autenticado.');
+            return;
+        }
+
+        const formattedTitle = description
+            ? (type === 'goal' || type === 'investment' ? `[${type.toUpperCase()}] ${description}`.trim() : description.trim())
+            : category;
+
+        const payload = {
+            user_id: user.id,
+            title: formattedTitle,
+            category,
+            amount: val,
+            type: type === 'goal' || type === 'investment' ? 'expense' : type,
+            date: new Date().toISOString().split('T')[0],
+        };
+
+        const { error: txError } = await supabase.from('transactions').insert([payload]);
 
         if (txError) {
             setLoading(false);

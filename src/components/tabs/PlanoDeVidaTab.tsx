@@ -126,30 +126,64 @@ export default function PlanoDeVidaTab({ userId: propUserId, dailyGoal = 150 }: 
         return;
       }
 
-      // a) Busca os últimos 7 dias de produção (daily_logs)
-      const { data: logsData } = await supabase
-        .from('daily_logs')
-        .select('*')
-        .eq('user_id', uid)
-        .order('date', { ascending: false })
-        .limit(7);
+      // a) Busca os últimos 7 dias de produção
+      let logsMapped: DayLog[] = [];
+      try {
+        const { data: logsData, error: logsError } = await supabase
+          .from('daily_logs')
+          .select('*')
+          .eq('user_id', uid)
+          .order('date', { ascending: false })
+          .limit(7);
 
-      if (logsData && logsData.length > 0) {
-        const mapped: DayLog[] = logsData.reverse().map((item: any) => ({
-          id: item.id,
-          day: new Date(item.date).toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', ''),
-          dateStr: new Date(item.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-          earned: Number(item.amount || 0),
-          goal: Number(item.goal || dailyGoal),
-          hours: Number(item.hours || 0)
-        }));
-        setWeeklyLogs(mapped);
+        if (!logsError && logsData && logsData.length > 0) {
+          logsMapped = logsData.reverse().map((item: any) => ({
+            id: item.id,
+            day: new Date(item.date).toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', ''),
+            dateStr: new Date(item.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+            earned: Number(item.amount || 0),
+            goal: Number(item.goal || dailyGoal),
+            hours: Number(item.hours || 0)
+          }));
+        } else {
+          // Fallback a partir de transactions (ganhos registrados)
+          const { data: txData } = await supabase
+            .from('transactions')
+            .select('amount, date')
+            .eq('user_id', uid)
+            .eq('type', 'income')
+            .order('date', { ascending: false })
+            .limit(30);
 
-        const todayItem = mapped[mapped.length - 1];
-        if (todayItem) {
-          setTodayEarned(todayItem.earned);
-          setTodayHours(todayItem.hours);
+          if (txData && txData.length > 0) {
+            const grouped: { [key: string]: number } = {};
+            txData.forEach((t: any) => {
+              if (t.date) {
+                grouped[t.date] = (grouped[t.date] || 0) + Number(t.amount || 0);
+              }
+            });
+            const sortedDates = Object.keys(grouped).sort().slice(-7);
+            logsMapped = sortedDates.map(dStr => {
+              const dObj = new Date(dStr + 'T12:00:00');
+              return {
+                day: dObj.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', ''),
+                dateStr: dObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+                earned: grouped[dStr],
+                goal: dailyGoal,
+                hours: Math.round(grouped[dStr] / 25) || 4
+              };
+            });
+          }
         }
+      } catch (err) {
+        console.error('Erro ao buscar logs:', err);
+      }
+
+      setWeeklyLogs(logsMapped);
+      if (logsMapped.length > 0) {
+        const todayItem = logsMapped[logsMapped.length - 1];
+        setTodayEarned(todayItem.earned);
+        setTodayHours(todayItem.hours);
       } else {
         setWeeklyLogs([]);
       }
@@ -166,37 +200,41 @@ export default function PlanoDeVidaTab({ userId: propUserId, dailyGoal = 150 }: 
       }
 
       // c) Busca a Lista de Dívidas Reais
-      const { data: debtsData } = await supabase
+      const { data: debtsData, error: debtsError } = await supabase
         .from('debts')
         .select('*')
         .eq('user_id', uid)
         .order('created_at', { ascending: false });
 
-      if (debtsData) {
+      if (debtsError) {
+        console.error('Erro ao carregar dívidas:', debtsError);
+      } else if (debtsData) {
         setDebts(debtsData.map((d: any) => ({
           id: d.id,
           title: d.title,
           totalAmount: Number(d.total_amount || 0),
-          remainingAmount: Number(d.remaining_amount || 0),
-          type: d.type || 'atrasado',
+          remainingAmount: Number(d.total_amount || 0) - Number(d.paid_amount || 0),
+          type: (d.debt_type === 'long_term' || d.debt_type === 'longo_prazo' ? 'longo_prazo' : 'atrasado') as 'atrasado' | 'longo_prazo',
           dueDate: d.due_date
         })));
       }
 
       // d) Busca a Lista de Objetivos / Sonhos Reais
-      const { data: dreamsData } = await supabase
+      const { data: dreamsData, error: dreamsError } = await supabase
         .from('dreams')
         .select('*')
         .eq('user_id', uid)
         .order('created_at', { ascending: false });
 
-      if (dreamsData) {
+      if (dreamsError) {
+        console.error('Erro ao carregar sonhos:', dreamsError);
+      } else if (dreamsData) {
         setDreams(dreamsData.map((d: any) => ({
           id: d.id,
           title: d.title,
           targetAmount: Number(d.target_amount || 0),
-          savedAmount: Number(d.saved_amount || 0),
-          category: d.category || 'compra'
+          savedAmount: Number(d.current_amount || 0),
+          category: 'compra'
         })));
       }
 
@@ -236,30 +274,58 @@ export default function PlanoDeVidaTab({ userId: propUserId, dailyGoal = 150 }: 
   // Cadastrar Nova Dívida
   const handleAddDebt = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDebtTitle || !newDebtAmount || !currentUserId) return;
+    if (!newDebtTitle || !newDebtAmount) return;
+
+    let uid = currentUserId;
+    if (!uid) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        uid = user.id;
+        setCurrentUserId(user.id);
+      }
+    }
+
+    if (!uid) {
+      alert('Usuário não autenticado.');
+      return;
+    }
+
     const val = parseFloat(newDebtAmount);
+    if (isNaN(val) || val <= 0) {
+      alert('Informe um valor válido para a dívida.');
+      return;
+    }
 
     try {
+      const dbDebtType = newDebtType === 'longo_prazo' ? 'long_term' : 'overdue';
+
       const { data, error } = await supabase
         .from('debts')
         .insert([{
-          user_id: currentUserId,
+          user_id: uid,
           title: newDebtTitle,
           total_amount: val,
-          remaining_amount: val,
-          type: newDebtType
+          paid_amount: 0,
+          debt_type: dbDebtType
         }])
         .select()
         .single();
 
-      if (!error && data) {
+      if (error) {
+        console.error('Erro ao inserir dívida:', error);
+        alert('Erro ao salvar dívida: ' + error.message);
+        return;
+      }
+
+      if (data) {
+        const uiType = (data.debt_type === 'long_term' || data.debt_type === 'longo_prazo' ? 'longo_prazo' : 'atrasado') as 'atrasado' | 'longo_prazo';
         setDebts(prev => [
           {
             id: data.id,
             title: data.title,
-            totalAmount: Number(data.total_amount),
-            remainingAmount: Number(data.remaining_amount),
-            type: data.type
+            totalAmount: Number(data.total_amount || 0),
+            remainingAmount: Number(data.total_amount || 0) - Number(data.paid_amount || 0),
+            type: uiType
           },
           ...prev
         ]);
@@ -267,8 +333,9 @@ export default function PlanoDeVidaTab({ userId: propUserId, dailyGoal = 150 }: 
         setNewDebtAmount('');
         setIsDebtModalOpen(false);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao inserir dívida:', err);
+      alert('Erro inesperado: ' + (err.message || 'Falha ao salvar dívida.'));
     }
   };
 
@@ -276,9 +343,11 @@ export default function PlanoDeVidaTab({ userId: propUserId, dailyGoal = 150 }: 
   const handleDeleteDebt = async (id: string) => {
     try {
       const { error } = await supabase.from('debts').delete().eq('id', id);
-      if (!error) {
-        setDebts(prev => prev.filter(d => d.id !== id));
+      if (error) {
+        alert('Erro ao excluir dívida: ' + error.message);
+        return;
       }
+      setDebts(prev => prev.filter(d => d.id !== id));
     } catch (err) {
       console.error('Erro ao excluir dívida:', err);
     }
@@ -287,29 +356,54 @@ export default function PlanoDeVidaTab({ userId: propUserId, dailyGoal = 150 }: 
   // Cadastrar Novo Objetivo / Sonho
   const handleAddDream = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDreamTitle || !newDreamTarget || !currentUserId) return;
+    if (!newDreamTitle || !newDreamTarget) return;
+
+    let uid = currentUserId;
+    if (!uid) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        uid = user.id;
+        setCurrentUserId(user.id);
+      }
+    }
+
+    if (!uid) {
+      alert('Usuário não autenticado.');
+      return;
+    }
+
+    const val = parseFloat(newDreamTarget);
+    if (isNaN(val) || val <= 0) {
+      alert('Informe um valor válido para o objetivo.');
+      return;
+    }
 
     try {
       const { data, error } = await supabase
         .from('dreams')
         .insert([{
-          user_id: currentUserId,
+          user_id: uid,
           title: newDreamTitle,
-          target_amount: parseFloat(newDreamTarget),
-          saved_amount: parseFloat(newDreamSaved || '0'),
-          category: newDreamCategory
+          target_amount: val,
+          current_amount: newDreamSaved ? parseFloat(newDreamSaved) : 0
         }])
         .select()
         .single();
 
-      if (!error && data) {
+      if (error) {
+        console.error('Erro ao inserir sonho:', error);
+        alert('Erro ao salvar objetivo: ' + error.message);
+        return;
+      }
+
+      if (data) {
         setDreams(prev => [
           {
             id: data.id,
             title: data.title,
-            targetAmount: Number(data.target_amount),
-            savedAmount: Number(data.saved_amount),
-            category: data.category
+            targetAmount: Number(data.target_amount || 0),
+            savedAmount: Number(data.current_amount || 0),
+            category: newDreamCategory
           },
           ...prev
         ]);
@@ -318,8 +412,9 @@ export default function PlanoDeVidaTab({ userId: propUserId, dailyGoal = 150 }: 
         setNewDreamSaved('');
         setIsDreamModalOpen(false);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao inserir sonho:', err);
+      alert('Erro inesperado: ' + (err.message || 'Falha ao salvar objetivo.'));
     }
   };
 
@@ -327,9 +422,11 @@ export default function PlanoDeVidaTab({ userId: propUserId, dailyGoal = 150 }: 
   const handleDeleteDream = async (id: string) => {
     try {
       const { error } = await supabase.from('dreams').delete().eq('id', id);
-      if (!error) {
-        setDreams(prev => prev.filter(d => d.id !== id));
+      if (error) {
+        alert('Erro ao excluir objetivo: ' + error.message);
+        return;
       }
+      setDreams(prev => prev.filter(d => d.id !== id));
     } catch (err) {
       console.error('Erro ao excluir objetivo:', err);
     }

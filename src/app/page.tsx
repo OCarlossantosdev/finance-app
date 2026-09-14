@@ -21,6 +21,7 @@ import {
   Moon
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { formatCurrency } from '@/lib/format';
 import Sidebar, { TabType } from '@/components/Sidebar';
 import PlanoDeVidaTab from '@/components/tabs/PlanoDeVidaTab';
 import InvestimentosTab from '@/components/tabs/InvestimentosTab';
@@ -376,7 +377,7 @@ export default function Dashboard() {
                         <CalendarDays size={12} className="text-[#00D1FF]" /> Faturado na Semana
                       </span>
                       <div className={`text-lg font-black ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
-                        R$ {weeklyGoalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        {formatCurrency(weeklyGoalTotal)}
                       </div>
                     </div>
 
@@ -412,7 +413,7 @@ export default function Dashboard() {
                         </div>
                       ) : (
                         <div className="text-lg font-black text-[#00D1FF]">
-                          R$ {dailyGoal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          {formatCurrency(dailyGoal)}
                         </div>
                       )}
                     </div>
@@ -426,7 +427,7 @@ export default function Dashboard() {
                     <div>
                       <span className={isDark ? 'text-[#C7B8FF] font-medium' : 'text-slate-600 font-medium'}>Faturado Hoje: </span>
                       <strong className={`text-sm font-black ml-1 ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
-                        R$ {todayProgress.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        {formatCurrency(todayProgress)}
                       </strong>
                       <span className={`ml-2 ${isDark ? 'text-[#C7B8FF]/60' : 'text-slate-500'}`}>({actualPercentageRaw}% da meta)</span>
                     </div>
@@ -488,7 +489,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <h3 className={`text-2xl font-black ${netBalance >= 0 ? (isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]') : 'text-rose-400'}`}>
-                      R$ {netBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      {formatCurrency(netBalance)}
                     </h3>
                     <p className="text-[11px] text-[#00D1FF] font-medium mt-1">Consolidado geral</p>
                   </div>
@@ -504,7 +505,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <h3 className={`text-2xl font-black ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
-                      R$ {totalIncomes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      {formatCurrency(totalIncomes)}
                     </h3>
                     <p className={`text-[11px] font-medium mt-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Entradas registradas</p>
                   </div>
@@ -520,7 +521,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <h3 className={`text-2xl font-black ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
-                      R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      {formatCurrency(totalExpenses)}
                     </h3>
                     <p className={`text-[11px] font-medium mt-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Saídas registradas</p>
                   </div>
@@ -536,7 +537,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <h3 className="text-2xl font-black text-[#7C3AED]">
-                      R$ {dailyGoal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      {formatCurrency(dailyGoal)}
                     </h3>
                     <p className={`text-[11px] font-medium mt-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Objetivo por jornada</p>
                   </div>

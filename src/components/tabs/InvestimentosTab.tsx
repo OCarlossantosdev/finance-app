@@ -17,7 +17,8 @@ import {
   Landmark,
   LineChart,
   Briefcase,
-  AlertCircle
+  AlertCircle,
+  HelpCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -53,7 +54,7 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
   const [investments, setInvestments] = useState<InvestmentItem[]>([]);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
-  // Sincronização dinâmica com o Tema do Fluxo Pay
+  // Sincronização dinâmica com o Tema do App
   useEffect(() => {
     const updateThemeFromStorage = () => {
       const savedTheme = localStorage.getItem('@app:theme') as 'dark' | 'light';
@@ -79,9 +80,32 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<InvestmentItem['category']>('cdb');
-  const [amount, setAmount] = useState('');
+  const [amountRaw, setAmountRaw] = useState(''); // Valor em centavos para o input formatado
   const [yieldRate, setYieldRate] = useState('');
   const [institution, setInstitution] = useState('');
+
+  // Estados da Calculadora de Investimentos
+  const [calcInitial, setCalcInitial] = useState('1000');
+  const [calcMonthly, setCalcMonthly] = useState('500');
+  const [calcRate, setCalcRate] = useState('10.5'); // Ex: 10.5% a.a. (Selic média)
+  const [calcYears, setCalcYears] = useState('5');
+
+  // Função auxiliar para formatar moeda automaticamente (Input Inteligente)
+  const handleCurrencyInput = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
+    const value = e.target.value.replace(/\D/g, '');
+    setter(value);
+  };
+
+  const formatDisplayCurrency = (rawVal: string) => {
+    if (!rawVal) return '0,00';
+    const number = parseInt(rawVal, 10) / 100;
+    return number.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const getNumericValue = (rawVal: string) => {
+    if (!rawVal) return 0;
+    return parseInt(rawVal, 10) / 100;
+  };
 
   // 1. CARREGAR INVESTIMENTOS DO SUPABASE
   const loadInvestments = useCallback(async () => {
@@ -136,9 +160,9 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
   // 2. SALVAR NOVO INVESTIMENTO
   const handleAddInvestment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !amount || !currentUserId) return;
+    if (!title || !amountRaw || !currentUserId) return;
 
-    const parsedAmount = parseFloat(amount);
+    const parsedAmount = getNumericValue(amountRaw);
 
     try {
       const { data, error } = await supabase
@@ -171,7 +195,7 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
 
         // Resetar Formulário
         setTitle('');
-        setAmount('');
+        setAmountRaw('');
         setYieldRate('');
         setInstitution('');
         setIsModalOpen(false);
@@ -193,14 +217,12 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
     }
   };
 
-  // CÁLCULOS FINANCEIROS E RESERVA RECOMENDADA COM BASE NA META DIÁRIA
+  // CÁLCULOS FINANCEIROS E RESERVA RECOMENDADA
   const totalInvested = investments.reduce((acc, item) => acc + item.amount, 0);
 
-  // Estimativa de despesa/custo mensal baseado em 26 dias úteis de meta diária
   const estimatedMonthlyIncome = dailyGoal * 26;
   const recommendedReserve = estimatedMonthlyIncome * reserveMonths;
 
-  // Total acumulado especificamente para Reserva de Emergência
   const currentReserveAmount = investments
     .filter(i => i.category === 'reserva' || i.category === 'selic')
     .reduce((acc, item) => acc + item.amount, 0);
@@ -210,11 +232,28 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
     100
   );
 
-  // Agrupamento por Categorias para o Gráfico de Distribuição
   const categoryTotals = investments.reduce((acc, item) => {
     acc[item.category] = (acc[item.category] || 0) + item.amount;
     return acc;
   }, {} as Record<string, number>);
+
+  // MOTOR DA CALCULADORA DE JUROS COMPOSTOS (SELIC / CDB)
+  const pInit = parseFloat(calcInitial) || 0;
+  const pMonth = parseFloat(calcMonthly) || 0;
+  const annualRate = parseFloat(calcRate) || 0;
+  const years = parseFloat(calcYears) || 1;
+
+  const monthlyRate = Math.pow(1 + annualRate / 100, 1 / 12) - 1;
+  const totalMonths = Math.round(years * 12);
+
+  let calcFutureValue = pInit;
+  let calcTotalInvested = pInit;
+
+  for (let i = 0; i < totalMonths; i++) {
+    calcFutureValue = (calcFutureValue + pMonth) * (1 + monthlyRate);
+    calcTotalInvested += pMonth;
+  }
+  const calcTotalYield = Math.max(0, calcFutureValue - calcTotalInvested);
 
   if (loading) {
     return (
@@ -232,14 +271,12 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* TOTAL PATRIMÔNIO INVESTIDO */}
-        <div className={`backdrop-blur-xl border p-6 rounded-3xl flex flex-col justify-between space-y-4 shadow-2xl ${
-          isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
-        }`}>
+        <div className={`backdrop-blur-xl border p-6 rounded-3xl flex flex-col justify-between space-y-4 shadow-2xl ${isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
+          }`}>
           <div className={`flex items-center justify-between border-b pb-3 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <div className="flex items-center gap-2.5">
-              <div className={`p-2.5 rounded-2xl border ${
-                isDark ? 'bg-gradient-to-r from-[#00D1FF]/20 to-[#3B82F6]/20 text-[#00D1FF] border-[#00D1FF]/30 shadow-lg shadow-[#00D1FF]/10' : 'bg-blue-50 text-blue-600 border-blue-200'
-              }`}>
+              <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-gradient-to-r from-[#00D1FF]/20 to-[#3B82F6]/20 text-[#00D1FF] border-[#00D1FF]/30 shadow-lg shadow-[#00D1FF]/10' : 'bg-blue-50 text-blue-600 border-blue-200'
+                }`}>
                 <TrendingUp size={22} />
               </div>
               <div>
@@ -247,9 +284,8 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
                 <p className={`text-[11px] ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Total alocado em ativos</p>
               </div>
             </div>
-            <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full border ${
-              isDark ? 'text-[#00D1FF] bg-[#00D1FF]/10 border-[#00D1FF]/30' : 'text-blue-600 bg-blue-50 border-blue-200'
-            }`}>
+            <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full border ${isDark ? 'text-[#00D1FF] bg-[#00D1FF]/10 border-[#00D1FF]/30' : 'text-blue-600 bg-blue-50 border-blue-200'
+              }`}>
               Ativo
             </span>
           </div>
@@ -261,15 +297,13 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
             </h1>
           </div>
 
-          <div className={`pt-2 border-t flex items-center justify-between text-xs ${
-            isDark ? 'border-white/10 text-[#C7B8FF]/70' : 'border-slate-200 text-slate-500'
-          }`}>
+          <div className={`pt-2 border-t flex items-center justify-between text-xs ${isDark ? 'border-white/10 text-[#C7B8FF]/70' : 'border-slate-200 text-slate-500'
+            }`}>
             <span>Ativos na Carteira: <strong className={isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}>{investments.length}</strong></span>
             <button
               onClick={() => setIsModalOpen(true)}
-              className={`flex items-center gap-1.5 font-bold transition-all hover:underline ${
-                isDark ? 'text-[#00D1FF]' : 'text-blue-600'
-              }`}
+              className={`flex items-center gap-1.5 font-bold transition-all hover:underline ${isDark ? 'text-[#00D1FF]' : 'text-blue-600'
+                }`}
             >
               <Plus size={15} /> Adicionar Ativo
             </button>
@@ -277,16 +311,13 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
         </div>
 
         {/* CÁLCULO DE RESERVA RECOMENDADA BASEADO NA META DIÁRIA */}
-        <div className={`lg:col-span-2 backdrop-blur-xl border p-6 rounded-3xl flex flex-col justify-between space-y-4 shadow-2xl ${
-          isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
-        }`}>
-          <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 ${
-            isDark ? 'border-white/10' : 'border-slate-200'
+        <div className={`lg:col-span-2 backdrop-blur-xl border p-6 rounded-3xl flex flex-col justify-between space-y-4 shadow-2xl ${isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
           }`}>
+          <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 ${isDark ? 'border-white/10' : 'border-slate-200'
+            }`}>
             <div className="flex items-center gap-3">
-              <div className={`p-2.5 rounded-2xl border ${
-                isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
-              }`}>
+              <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                }`}>
                 <ShieldCheck size={22} />
               </div>
               <div>
@@ -296,22 +327,20 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
             </div>
 
             {/* Seletor de Meses de Proteção */}
-            <div className={`flex items-center gap-1.5 p-1 rounded-2xl border self-start sm:self-auto ${
-              isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
-            }`}>
+            <div className={`flex items-center gap-1.5 p-1 rounded-2xl border self-start sm:self-auto ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
+              }`}>
               {[3, 6, 12].map((months) => (
                 <button
                   key={months}
                   onClick={() => setReserveMonths(months)}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
-                    reserveMonths === months
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${reserveMonths === months
                       ? isDark
                         ? 'bg-gradient-to-r from-[#00D1FF] to-[#3B82F6] text-[#0A1F5B] shadow-md shadow-[#00D1FF]/20'
                         : 'bg-blue-600 text-white shadow-md'
                       : isDark
                         ? 'text-[#C7B8FF]/70 hover:text-white'
                         : 'text-slate-500 hover:text-[#0A1F5B]'
-                  }`}
+                    }`}
                 >
                   {months} Meses
                 </button>
@@ -320,9 +349,8 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-            <div className={`p-3.5 rounded-2xl border space-y-1 ${
-              isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
-            }`}>
+            <div className={`p-3.5 rounded-2xl border space-y-1 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
+              }`}>
               <span className={`text-[10px] font-semibold flex items-center gap-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>
                 <Calculator size={13} className="text-amber-400" /> Meta Diária Atual
               </span>
@@ -332,9 +360,8 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
               </p>
             </div>
 
-            <div className={`p-3.5 rounded-2xl border space-y-1 ${
-              isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
-            }`}>
+            <div className={`p-3.5 rounded-2xl border space-y-1 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
+              }`}>
               <span className={`text-[10px] font-semibold flex items-center gap-1 ${isDark ? 'text-[#00D1FF]' : 'text-blue-600'}`}>
                 <ShieldCheck size={13} /> Meta Recomendada ({reserveMonths}M)
               </span>
@@ -346,9 +373,8 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
               </p>
             </div>
 
-            <div className={`p-3.5 rounded-2xl border space-y-1 ${
-              isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
-            }`}>
+            <div className={`p-3.5 rounded-2xl border space-y-1 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
+              }`}>
               <span className={`text-[10px] font-semibold ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Guardado p/ Reserva</span>
               <p className={`text-lg font-black ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
                 R$ {currentReserveAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -365,15 +391,13 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
               <span>Status da Cobertura de Emergência</span>
               <span>{reserveProgressPercent}% concluído</span>
             </div>
-            <div className={`w-full rounded-full h-2.5 overflow-hidden border ${
-              isDark ? 'bg-white/10 border-white/10' : 'bg-slate-200 border-slate-200'
-            }`}>
+            <div className={`w-full rounded-full h-2.5 overflow-hidden border ${isDark ? 'bg-white/10 border-white/10' : 'bg-slate-200 border-slate-200'
+              }`}>
               <div
-                className={`h-2.5 rounded-full transition-all duration-700 ${
-                  isDark
+                className={`h-2.5 rounded-full transition-all duration-700 ${isDark
                     ? 'bg-gradient-to-r from-[#00D1FF] to-[#3B82F6]'
                     : 'bg-gradient-to-r from-blue-600 to-indigo-500'
-                }`}
+                  }`}
                 style={{ width: `${reserveProgressPercent}%` }}
               />
             </div>
@@ -382,13 +406,112 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
 
       </div>
 
-      {/* BLOCO 2: DISTRIBUIÇÃO DA CARTEIRA & INSIGHTS (GRÁFICO SVG) */}
+      {/* BLOCO 1.5: CALCULADORA DE INVESTIMENTOS (NOVO PLANEJADOR SELIC / CDB) */}
+      <div className={`backdrop-blur-xl border p-6 rounded-3xl space-y-6 shadow-2xl ${isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
+        }`}>
+        <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 ${isDark ? 'border-white/10' : 'border-slate-200'
+          }`}>
+          <div className="flex items-center gap-2.5">
+            <div className={`p-2.5 rounded-2xl border ${isDark ? 'bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/30' : 'bg-blue-50 text-blue-600 border-blue-200'
+              }`}>
+              <Calculator size={20} />
+            </div>
+            <div>
+              <h3 className={`text-sm font-bold ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>Calculadora de Renda Fixa (Selic / CDB)</h3>
+              <p className={`text-[11px] ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Simule o crescimento dos seus aportes mensais com juros compostos</p>
+            </div>
+          </div>
+          <span className={`text-[10px] font-bold px-3 py-1 rounded-full border self-start sm:self-auto ${isDark ? 'bg-white/[0.04] border-white/10 text-[#C7B8FF]' : 'bg-slate-100 border-slate-200 text-slate-700'
+            }`}>
+            Planejamento de Longo Prazo
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+          {/* Inputs da Calculadora */}
+          <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={`text-xs font-medium block mb-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-600'}`}>Valor Inicial Disponível (R$)</label>
+              <input
+                type="number"
+                step="100"
+                value={calcInitial}
+                onChange={(e) => setCalcInitial(e.target.value)}
+                className={`w-full border rounded-xl px-3.5 py-2.5 text-xs font-bold focus:outline-none ${isDark ? 'bg-slate-950/60 border-white/10 text-white focus:border-[#00D1FF]' : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
+                  }`}
+              />
+            </div>
+
+            <div>
+              <label className={`text-xs font-medium block mb-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-600'}`}>Aporte Mensal Recorrente (R$)</label>
+              <input
+                type="number"
+                step="50"
+                value={calcMonthly}
+                onChange={(e) => setCalcMonthly(e.target.value)}
+                className={`w-full border rounded-xl px-3.5 py-2.5 text-xs font-bold focus:outline-none ${isDark ? 'bg-slate-950/60 border-white/10 text-white focus:border-[#00D1FF]' : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
+                  }`}
+              />
+            </div>
+
+            <div>
+              <label className={`text-xs font-medium block mb-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-600'}`}>Rentabilidade Anual (% a.a.)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={calcRate}
+                onChange={(e) => setCalcRate(e.target.value)}
+                className={`w-full border rounded-xl px-3.5 py-2.5 text-xs font-bold focus:outline-none ${isDark ? 'bg-slate-950/60 border-white/10 text-white focus:border-[#00D1FF]' : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
+                  }`}
+              />
+              <span className={`text-[10px] mt-1 block ${isDark ? 'text-[#C7B8FF]/60' : 'text-slate-400'}`}>Ex: Selic atual (~10.5% a.a.) ou CDB 110% CDI</span>
+            </div>
+
+            <div>
+              <label className={`text-xs font-medium block mb-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-600'}`}>Prazo (Anos)</label>
+              <input
+                type="number"
+                step="1"
+                value={calcYears}
+                onChange={(e) => setCalcYears(e.target.value)}
+                className={`w-full border rounded-xl px-3.5 py-2.5 text-xs font-bold focus:outline-none ${isDark ? 'bg-slate-950/60 border-white/10 text-white focus:border-[#00D1FF]' : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
+                  }`}
+              />
+            </div>
+          </div>
+
+          {/* Resultado da Simulação */}
+          <div className={`p-5 rounded-2xl border space-y-3 ${isDark ? 'bg-gradient-to-br from-white/[0.04] to-white/[0.01] border-white/10' : 'bg-blue-50/50 border-blue-100'
+            }`}>
+            <span className={`text-[11px] font-bold block ${isDark ? 'text-[#00D1FF]' : 'text-blue-600'}`}>Resultado da Simulação</span>
+
+            <div>
+              <span className={`text-[10px] ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Montante Final Acumulado</span>
+              <p className={`text-2xl font-black mt-0.5 ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
+                R$ {calcFutureValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            </div>
+
+            <div className={`pt-2 border-t space-y-1.5 text-[11px] ${isDark ? 'border-white/10 text-[#C7B8FF]/70' : 'border-slate-200 text-slate-600'}`}>
+              <div className="flex justify-between">
+                <span>Total investido por você:</span>
+                <strong className={isDark ? 'text-white' : 'text-slate-900'}>R$ {calcTotalInvested.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>Rendimento de Juros:</span>
+                <strong className="text-emerald-400">+ R$ {calcTotalYield.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* BLOCO 2: DISTRIBUIÇÃO DA CARTEIRA & INSIGHTS (GRÁFICO) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* DISTRIBUIÇÃO POR CATEGORIA */}
-        <div className={`lg:col-span-2 backdrop-blur-xl border p-6 rounded-3xl space-y-6 shadow-2xl ${
-          isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
-        }`}>
+        <div className={`lg:col-span-2 backdrop-blur-xl border p-6 rounded-3xl space-y-6 shadow-2xl ${isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
+          }`}>
           <div className={`flex items-center justify-between border-b pb-3 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <div className="flex items-center gap-2">
               <PieChart size={18} className={isDark ? 'text-[#00D1FF]' : 'text-blue-600'} />
@@ -404,9 +527,8 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
           ) : (
             <div className="space-y-4">
               {/* Barra de Distribuição Multicor */}
-              <div className={`w-full h-4 rounded-2xl overflow-hidden flex shadow-inner border ${
-                isDark ? 'bg-white/5 border-white/10' : 'bg-slate-200 border-slate-200'
-              }`}>
+              <div className={`w-full h-4 rounded-2xl overflow-hidden flex shadow-inner border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-200 border-slate-200'
+                }`}>
                 {Object.entries(categoryTotals).map(([cat, amount]) => {
                   const percentage = totalInvested > 0 ? (amount / totalInvested) * 100 : 0;
                   const config = CATEGORIES_CONFIG[cat as keyof typeof CATEGORIES_CONFIG] || CATEGORIES_CONFIG.outros;
@@ -433,13 +555,11 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
                   const Icon = config.icon;
 
                   return (
-                    <div key={key} className={`border p-3 rounded-2xl flex items-center justify-between ${
-                      isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
-                    }`}>
+                    <div key={key} className={`border p-3 rounded-2xl flex items-center justify-between ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
+                      }`}>
                       <div className="flex items-center gap-2.5">
-                        <div className={`p-2 rounded-xl border ${
-                          isDark ? 'bg-white/[0.04] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-700'
-                        }`}>
+                        <div className={`p-2 rounded-xl border ${isDark ? 'bg-white/[0.04] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-700'
+                          }`}>
                           <Icon size={16} />
                         </div>
                         <div>
@@ -459,9 +579,8 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
         </div>
 
         {/* INSIGHTS E RECOMENDAÇÕES */}
-        <div className={`backdrop-blur-xl border p-6 rounded-3xl space-y-4 flex flex-col justify-between shadow-2xl ${
-          isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
-        }`}>
+        <div className={`backdrop-blur-xl border p-6 rounded-3xl space-y-4 flex flex-col justify-between shadow-2xl ${isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
+          }`}>
           <div className="space-y-3">
             <div className={`flex items-center gap-2 border-b pb-3 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
               <Sparkles size={18} className="text-amber-400" />
@@ -470,20 +589,18 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
 
             <div className="space-y-3">
               {currentReserveAmount < recommendedReserve ? (
-                <div className={`p-3.5 border rounded-2xl space-y-1 ${
-                  isDark ? 'bg-amber-500/10 border-amber-500/20 text-slate-300' : 'bg-amber-50 border-amber-200 text-amber-900'
-                }`}>
+                <div className={`p-3.5 border rounded-2xl space-y-1 ${isDark ? 'bg-amber-500/10 border-amber-500/20 text-slate-300' : 'bg-amber-50 border-amber-200 text-amber-900'
+                  }`}>
                   <div className="flex items-center gap-1.5 text-amber-400 font-bold text-xs">
                     <AlertCircle size={15} /> Foco em Renda Fixa / Liquidez
                   </div>
                   <p className="text-[11px] leading-relaxed">
-                    Sua reserva de emergência ainda está abaixo da meta recomendada para a sua rotina de trabalho. Concentre os novos aportes em Selic ou CDBs com liquidez diária.
+                    Sua reserva de emergência ainda está abaixo da meta recomendada. Concentre os novos aportes em Tesouro Selic ou CDBs com liquidez diária.
                   </p>
                 </div>
               ) : (
-                <div className={`p-3.5 border rounded-2xl space-y-1 ${
-                  isDark ? 'bg-emerald-500/10 border-emerald-500/20 text-slate-300' : 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                }`}>
+                <div className={`p-3.5 border rounded-2xl space-y-1 ${isDark ? 'bg-emerald-500/10 border-emerald-500/20 text-slate-300' : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                  }`}>
                   <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-xs">
                     <ShieldCheck size={15} /> Reserva em Nível Seguro
                   </div>
@@ -493,9 +610,8 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
                 </div>
               )}
 
-              <div className={`p-3.5 border rounded-2xl space-y-1 ${
-                isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
-              }`}>
+              <div className={`p-3.5 border rounded-2xl space-y-1 ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
+                }`}>
                 <span className={`text-[11px] font-bold flex items-center gap-1 ${isDark ? 'text-[#00D1FF]' : 'text-blue-600'}`}>
                   <ArrowUpRight size={14} /> Diversificação
                 </span>
@@ -514,9 +630,8 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
       </div>
 
       {/* BLOCO 3: TABELA DE ATIVOS / DETALHAMENTO */}
-      <div className={`backdrop-blur-xl border rounded-3xl p-6 space-y-4 shadow-2xl ${
-        isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
-      }`}>
+      <div className={`backdrop-blur-xl border rounded-3xl p-6 space-y-4 shadow-2xl ${isDark ? 'bg-white/[0.03] border-white/10 text-[#F8FAFF]' : 'bg-white/70 border-slate-200 text-[#0A1F5B]'
+        }`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className={`text-base font-bold flex items-center gap-2 ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>
@@ -527,29 +642,26 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
 
           <button
             onClick={() => setIsModalOpen(true)}
-            className={`flex items-center gap-2 border px-3.5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 self-start sm:self-auto ${
-              isDark
+            className={`flex items-center gap-2 border px-3.5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 self-start sm:self-auto ${isDark
                 ? 'bg-[#00D1FF]/10 hover:bg-[#00D1FF]/20 text-[#00D1FF] border-[#00D1FF]/30'
                 : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200'
-            }`}
+              }`}
           >
             <Plus size={16} /> Novo Investimento
           </button>
         </div>
 
         {investments.length === 0 ? (
-          <div className={`p-8 text-center rounded-2xl border ${
-            isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
-          }`}>
+          <div className={`p-8 text-center rounded-2xl border ${isDark ? 'bg-white/[0.02] border-white/10' : 'bg-slate-50 border-slate-200'
+            }`}>
             <p className={`text-xs ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-500'}`}>Nenhum investimento registrado nesta conta.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className={`border-b text-[11px] font-bold uppercase tracking-wider ${
-                  isDark ? 'border-white/10 text-[#C7B8FF]/70' : 'border-slate-200 text-slate-500'
-                }`}>
+                <tr className={`border-b text-[11px] font-bold uppercase tracking-wider ${isDark ? 'border-white/10 text-[#C7B8FF]/70' : 'border-slate-200 text-slate-500'
+                  }`}>
                   <th className="py-3 px-3">Ativo / Título</th>
                   <th className="py-3 px-3">Categoria</th>
                   <th className="py-3 px-3">Instituição</th>
@@ -566,9 +678,8 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
                     <tr key={item.id} className={`transition-colors ${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}`}>
                       <td className={`py-3.5 px-3 font-bold ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>{item.title}</td>
                       <td className="py-3.5 px-3">
-                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                          isDark ? 'border-white/10 bg-white/[0.03] text-[#C7B8FF]' : 'border-slate-200 bg-slate-100 text-slate-700'
-                        }`}>
+                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${isDark ? 'border-white/10 bg-white/[0.03] text-[#C7B8FF]' : 'border-slate-200 bg-slate-100 text-slate-700'
+                          }`}>
                           {config.label}
                         </span>
                       </td>
@@ -595,12 +706,11 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
         )}
       </div>
 
-      {/* MODAL ADICIONAR INVESTIMENTO */}
+      {/* MODAL ADICIONAR INVESTIMENTO COM INPUT INTELIGENTE DE MOEDA */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className={`border shadow-2xl w-full max-w-md rounded-3xl p-6 space-y-4 animate-in zoom-in-95 duration-200 ${
-            isDark ? 'bg-[#0A1F5B] border-white/10 text-[#F8FAFF]' : 'bg-white border-slate-200 text-[#0A1F5B]'
-          }`}>
+          <div className={`border shadow-2xl w-full max-w-md rounded-3xl p-6 space-y-4 animate-in zoom-in-95 duration-200 ${isDark ? 'bg-[#0A1F5B] border-white/10 text-[#F8FAFF]' : 'bg-white border-slate-200 text-[#0A1F5B]'
+            }`}>
             <div className={`flex justify-between items-center border-b pb-3 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
               <h3 className={`text-sm font-bold ${isDark ? 'text-[#F8FAFF]' : 'text-[#0A1F5B]'}`}>Adicionar Investimento</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
@@ -616,11 +726,10 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
                   placeholder="Ex: CDB 110% CDI, Tesouro Selic 2029, HGLG11..."
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${
-                    isDark
+                  className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${isDark
                       ? 'bg-slate-950/60 border-white/10 text-white focus:border-[#00D1FF]'
                       : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
-                  }`}
+                    }`}
                   required
                 />
               </div>
@@ -631,11 +740,10 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
                   <select
                     value={category}
                     onChange={(e: any) => setCategory(e.target.value)}
-                    className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${
-                      isDark
+                    className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${isDark
                         ? 'bg-slate-950/60 border-white/10 text-white focus:border-[#00D1FF]'
                         : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
-                    }`}
+                      }`}
                   >
                     <option value="reserva">Reserva de Emergência</option>
                     <option value="selic">Tesouro Selic</option>
@@ -649,19 +757,19 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
 
                 <div>
                   <label className={`text-xs font-medium block mb-1 ${isDark ? 'text-[#C7B8FF]/70' : 'text-slate-600'}`}>Valor Alocado (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${
-                      isDark
-                        ? 'bg-slate-950/60 border-white/10 text-white focus:border-[#00D1FF]'
-                        : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
-                    }`}
-                    required
-                  />
+                  {/* INPUT INTELIGENTE: Digite apenas números, formata automaticamente como centavos/reais */}
+                  <div className={`flex items-center border rounded-xl px-3 py-2 text-xs ${isDark ? 'bg-slate-950/60 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    }`}>
+                    <span className="text-slate-400 mr-1 font-bold">R$</span>
+                    <input
+                      type="text"
+                      placeholder="0,00"
+                      value={formatDisplayCurrency(amountRaw)}
+                      onChange={(e) => handleCurrencyInput(e, setAmountRaw)}
+                      className="w-full bg-transparent focus:outline-none font-bold text-xs"
+                      required
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -673,11 +781,10 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
                     placeholder="Ex: Nubank, XP, Inter"
                     value={institution}
                     onChange={(e) => setInstitution(e.target.value)}
-                    className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${
-                      isDark
+                    className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${isDark
                         ? 'bg-slate-950/60 border-white/10 text-white focus:border-[#00D1FF]'
                         : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
-                    }`}
+                      }`}
                   />
                 </div>
 
@@ -688,11 +795,10 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
                     placeholder="Ex: 100% CDI, 12% a.a."
                     value={yieldRate}
                     onChange={(e) => setYieldRate(e.target.value)}
-                    className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${
-                      isDark
+                    className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${isDark
                         ? 'bg-slate-950/60 border-white/10 text-white focus:border-[#00D1FF]'
                         : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
-                    }`}
+                      }`}
                   />
                 </div>
               </div>
@@ -701,21 +807,19 @@ export default function InvestimentosTab({ userId: propUserId, dailyGoal = 150 }
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all border ${
-                    isDark
+                  className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all border ${isDark
                       ? 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 border-white/10'
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                  }`}
+                    }`}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all ${
-                    isDark
+                  className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all ${isDark
                       ? 'bg-gradient-to-r from-[#00D1FF] to-[#3B82F6] text-[#0A1F5B] hover:opacity-90 shadow-lg shadow-[#00D1FF]/20'
                       : 'bg-blue-600 hover:bg-blue-500 text-white'
-                  }`}
+                    }`}
                 >
                   Salvar Ativo
                 </button>
